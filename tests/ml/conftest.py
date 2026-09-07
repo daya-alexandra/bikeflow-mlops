@@ -2,8 +2,16 @@
 
 from __future__ import annotations
 
-import pandas as pd
 import pytest
+
+try:
+    import pandas as pd
+except ModuleNotFoundError:  # pragma: no cover
+    # Installed without the `ml` extra (pandas, scikit-learn, torch). Skip this
+    # directory instead of failing collection, so `pip install -e ".[dev]"`
+    # keeps working for anyone who only touches the API.
+    pd = None
+    collect_ignore_glob = ["test_*.py"]
 
 
 @pytest.fixture
