@@ -7,9 +7,13 @@ hourly urban bicycle-rental demand. It follows the requirements of the
 
 ## Current stage
 
-This first stage provides a small, tested FastAPI boundary, a preliminary model/API contract, CI,
-and a non-root Docker image. The API currently uses a fixed development-only stub model; there is
-no real ML model, persistence, DVC remote, MLflow, monitoring, orchestration, deployment, or UI.
+The repository provides a tested FastAPI boundary, a reviewed model/API contract, CI, a non-root
+Docker image, and a reproducible training pipeline that produces a real model artifact.
+
+The API still serves `StubPredictor` by default: swapping it for the trained model is a one-line
+change in `bikeflow/api/dependencies.py`, held back until we agree how the artifact reaches the
+container. There is no persistence, DVC remote, MLflow, monitoring, orchestration, deployment or UI
+yet.
 
 Participant A (`EgorMa1tsev`) owns data, DVC, preprocessing, training, and the ML artifact.
 Participant B (`daya-alexandra`) owns the repository, API, tests, CI, Docker, and later platform
@@ -64,6 +68,43 @@ curl -X POST http://127.0.0.1:8000/predict \
 ```
 
 The response contains the requested time, `predicted_rentals`, and `model_version: "stub-v0"`.
+
+## Training pipeline
+
+The data and model side needs the `ml` extra (pandas, scikit-learn, torch). It is deliberately
+separate from the runtime dependencies so the API image does not carry torch.
+
+```bash
+python -m pip install -e ".[dev,ml]"
+make data      # download from UCI, preprocess, chronological split
+make train     # baseline + reference + two networks, then reports/
+make evaluate  # metrics for the serving model, with slices
+```
+
+Training runs on CPU in about a minute and is deterministic: a clean rerun reproduces every metric
+bit for bit.
+
+| Model | val WAPE | test MAE | test WAPE |
+| --- | --- | --- | --- |
+| seasonal_median (baseline) | 0.566 | 422.9 | 0.497 |
+| hgb (reference) | 0.163 | 279.4 | 0.329 |
+| **mlp_embedding (serving)** | 0.174 | **180.3** | **0.212** |
+
+The serving model is a PyTorch MLP with entity embeddings; it improves test MAE by 57 % over the
+seasonal baseline (R² = 0.805). Architecture, metrics, slices and limitations are in
+[`docs/model/model_card.md`](docs/model/model_card.md); the dataset and split are described in
+[`docs/model/data_card.md`](docs/model/data_card.md).
+
+Predictions are also available directly, for one observation or many at once:
+
+```python
+from bikeflow.ml.inference import Predictor
+
+predictor = Predictor.load("models/model.joblib")
+predictor.predict({"date": "2018-12-01", "hour": 18, "season": "Winter", ...})
+predictor.predict(list_of_rows)          # batch
+predictor.predict("hours.csv")           # file
+```
 
 ## Docker
 

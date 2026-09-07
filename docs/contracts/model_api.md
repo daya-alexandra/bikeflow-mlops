@@ -1,7 +1,10 @@
 # Model/API contract
 
-Status: **preliminary**. Participant A must review and approve this contract before a real model is
-connected. The current service uses `StubPredictor` (`stub-v0`) only.
+Status: **reviewed by participant A**, see [`../model/contract_review.md`](../model/contract_review.md).
+The contract holds. Names, units, category encoding and the split requirement are confirmed against
+the trained pipeline; `day_of_week` was added to the derived features, and value ranges plus
+timezone handling still need a joint decision. The service still ships `StubPredictor` (`stub-v0`)
+by default; the trained artifact is served through `bikeflow.model.adapter.BikeflowPredictor`.
 
 ## Prediction request
 
@@ -21,9 +24,9 @@ connected. The current service uses `StubPredictor` (`stub-v0`) only.
 | `holiday` | boolean | Whether the date is a holiday |
 | `functioning_day` | boolean | Whether rentals operate that day |
 
-`hour` and meteorological `season` are derived centrally from `prediction_time`; clients must not
-send them. Unknown request fields are rejected. Participant A must confirm names, units, category
-encoding, timezone handling, and all value constraints against the training pipeline.
+`hour`, `day_of_week` and meteorological `season` are derived centrally from `prediction_time`;
+clients must not send them. Unknown request fields are rejected. The derived `season` was verified
+against the dataset's own labels and matches on all 8760 rows.
 
 ## Prediction response
 

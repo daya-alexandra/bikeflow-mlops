@@ -1,8 +1,11 @@
-.PHONY: install lint format test run docker-build
+.PHONY: install install-ml lint format test run docker-build data train evaluate
 
 install:
 	python -m pip install -e ".[dev]"
 	pre-commit install
+
+install-ml:
+	python -m pip install -e ".[dev,ml]"
 
 lint:
 	ruff check .
@@ -20,3 +23,17 @@ run:
 
 docker-build:
 	docker build --tag bikeflow:local .
+
+# --- data / model pipeline (participant A) ----------------------------------
+# Requires the `ml` extra: make install-ml
+
+data:
+	python -m bikeflow.ml download
+	python -m bikeflow.ml preprocess
+	python -m bikeflow.ml split
+
+train:
+	python -m bikeflow.ml train
+
+evaluate:
+	python -m bikeflow.ml evaluate --split test
