@@ -26,8 +26,8 @@ dev = [
     "pytest==8.3.4",
     "ruff==0.9.4",
 ]
-# Offline data preparation, reports, and the optional MLP experiment. The core
-# HGB serving dependencies are runtime dependencies; torch never enters the image.
+# Offline data preparation and reports. CPU PyTorch is installed explicitly from
+# its CPU-only index in CI and Docker, then validated against the pinned extra.
 ml = [
     "matplotlib==3.10.0",
     "pyarrow==18.1.0",

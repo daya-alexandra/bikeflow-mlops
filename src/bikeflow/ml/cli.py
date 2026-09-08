@@ -33,11 +33,18 @@ def _cmd_split(_: argparse.Namespace) -> int:
 def _cmd_train(args: argparse.Namespace) -> int:
     from .training.train import run_training
 
-    run_training(
-        save=not args.dry_run,
-        figures=not args.no_figures,
-        include_mlp=args.include_mlp,
-    )
+    run_training(save=not args.dry_run, figures=not args.no_figures)
+    return 0
+
+
+def _cmd_cv(_: argparse.Namespace) -> int:
+    from .training.cv import run_cv, summarise_cv
+
+    scores = run_cv()
+    print()
+    print(scores.round(1).to_string(index=False))
+    print()
+    print(summarise_cv(scores).round(1).to_string(index=False))
     return 0
 
 
@@ -114,12 +121,12 @@ def build_parser() -> argparse.ArgumentParser:
     train = subparsers.add_parser("train", help="train all models and write reports")
     train.add_argument("--dry-run", action="store_true", help="do not write artifacts")
     train.add_argument("--no-figures", action="store_true", help="skip plots")
-    train.add_argument(
-        "--include-mlp",
-        action="store_true",
-        help="also run the optional PyTorch MLP experiment",
-    )
     train.set_defaults(func=_cmd_train)
+
+    cross_val = subparsers.add_parser(
+        "cv", help="rolling-origin cross-validation used to pick the champion"
+    )
+    cross_val.set_defaults(func=_cmd_cv)
 
     evaluate = subparsers.add_parser("evaluate", help="score a saved model on a split")
     evaluate.add_argument("--model", default=None, help="path to a .joblib artifact")

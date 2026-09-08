@@ -7,11 +7,13 @@
 - диапазоны API и ML читаются из одного `FEATURE_CONTRACT`;
 - timezone обязательна, время нормализуется в `Asia/Seoul`;
 - сезон выводится в canonical-регистре (`Winter`, `Spring`, `Summer`, `Autumn`);
-- HGB выбрана по validation MAE, test используется только для финальной оценки;
+- MLP embedding выбрана по среднему MAE на rolling-origin CV; WAPE дополнительна;
+- HGB и baseline остаются сравниваемыми моделями, test не участвует в выборе;
 - estimator и preprocessing сохранены как один `InferencePipeline`;
 - `BIKEFLOW_MODEL_PATH` задаёт артефакт, Compose монтирует его read-only;
 - production dependency использует настоящую модель, stub остался только для DI-
   теста;
-- PyTorch отсутствует в serving-образе.
+- CPU PyTorch закреплён и присутствует в serving-образе;
+- погодные условия пока передаёт пользователь, внешнего weather API нет.
 
 Эти пункты нужно подтвердить участнику A перед объявлением контракта окончательным.

@@ -16,14 +16,18 @@ RUN python -m pip install --upgrade pip
 
 FROM base AS training
 
-RUN python -m pip install --constraint requirements/runtime-py311.lock ".[ml]"
+RUN python -m pip install --constraint requirements/runtime-py311.lock \
+        torch==2.6.0 --index-url https://download.pytorch.org/whl/cpu && \
+    python -m pip install --constraint requirements/runtime-py311.lock ".[ml,mlp]"
 
 CMD ["python", "-m", "bikeflow.ml", "train", "--no-figures"]
 
 FROM base AS runtime
 
 RUN addgroup --system bikeflow && adduser --system --ingroup bikeflow bikeflow && \
-    python -m pip install --constraint requirements/runtime-py311.lock .
+    python -m pip install --constraint requirements/runtime-py311.lock \
+        torch==2.6.0 --index-url https://download.pytorch.org/whl/cpu && \
+    python -m pip install --constraint requirements/runtime-py311.lock ".[mlp]"
 
 USER bikeflow
 EXPOSE 8000

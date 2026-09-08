@@ -1,129 +1,101 @@
 # BikeFlow
 
-BikeFlow — учебный MLOps-проект для прогноза почасового спроса на городской
-велопрокат в Сеуле. Первый вертикальный срез уже проходит весь путь: официальный
-датасет UCI → проверка и хронологический split → обучение HGB → единый артефакт
-preprocessing + model → FastAPI `/predict` → Docker.
+BikeFlow — публичный учебный MLOps-проект для прогноза почасового спроса на
+велопрокат в Сеуле. Первый вертикальный срез проходит весь путь: официальный
+датасет UCI → хронологическая проверка → rolling-origin model selection → единый
+MLP-артефакт preprocessing + model → FastAPI `/predict` → Docker.
 
 Участник A ([EgorMa1tsev](https://github.com/EgorMa1tsev)) отвечает за данные,
-признаки, обучение и оценку моделей. Участница B
-([daya-alexandra](https://github.com/daya-alexandra)) отвечает за репозиторий,
-API, интеграцию, тесты, CI и Docker. Решения текущего среза provisional: команда
-может пересмотреть их после обсуждения.
+признаки, обучение и оценку. Участница B
+([daya-alexandra](https://github.com/daya-alexandra)) — за репозиторий, API,
+интеграцию, тесты, CI и Docker.
 
-## Текущий путь запроса
+## Production-модель и путь запроса
 
-`JSON request` → единая схема признаков → перевод времени в `Asia/Seoul` →
-календарные признаки → pipeline из `models/model.joblib` → HGB →
-`predicted_rentals` + `model_version`.
+Production-модель — PyTorch **MLP embedding**. HGB и seasonal median остаются
+сравниваемыми моделями. Выбор сделан по среднему MAE на трёх rolling-origin folds:
 
-Погодные значения передаёт вызывающая сторона. Это условный прогноз «каким будет
-спрос при заданной погоде», а не автоматически полученная метеосводка.
+| Модель | fold 1 | fold 2 | fold 3 | средний MAE |
+| --- | ---: | ---: | ---: | ---: |
+| **MLP embedding** | 407.2 | 378.0 | 379.2 | **388.1** |
+| HGB | 579.6 | 469.5 | 200.2 | 416.4 |
+| MLP one-hot | 480.2 | 358.8 | 439.3 | 426.1 |
+| seasonal median | 689.9 | 867.3 | 644.1 | 733.8 |
+
+MAE — основная метрика; WAPE публикуется как дополнительная. Test не участвует
+в выборе и оценивается только после фиксации победителя.
+
+`JSON` → валидация → перевод времени в `Asia/Seoul` → календарные признаки →
+`InferencePipeline` из `BIKEFLOW_MODEL_PATH` → MLP embedding → прогноз и версия.
+Погоду пока передаёт пользователь; внешнего weather API нет.
 
 ## Установка и обучение
 
-Требуется Python 3.11. Прямые версии закреплены в `pyproject.toml`, полный runtime
-lock — в `requirements/runtime-py311.lock`.
+Требуется Python 3.11. Прямые версии закреплены в `pyproject.toml`, runtime lock —
+в `requirements/runtime-py311.lock`. Для Linux CPU wheel PyTorch ставится из
+официального CPU-only index:
 
 ```bash
 python -m venv .venv
-# Windows PowerShell: .venv\Scripts\Activate.ps1
-# Linux/macOS: source .venv/bin/activate
-python -m pip install --constraint requirements/runtime-py311.lock -e ".[dev,ml]"
+source .venv/bin/activate  # Windows: .venv\Scripts\Activate.ps1
+python -m pip install --constraint requirements/runtime-py311.lock \
+  torch==2.6.0 --index-url https://download.pytorch.org/whl/cpu
+python -m pip install --constraint requirements/runtime-py311.lock -e ".[dev,ml,mlp]"
 python -m bikeflow.ml download
 python -m bikeflow.ml preprocess
 python -m bikeflow.ml split
 python -m bikeflow.ml train --no-figures
 ```
 
-Загрузка принимает только исходный CSV с SHA256
-`373339b71a8935d69e9af0abf26a70744632119862eeb3919efb389a7b749c60`.
-Данные и `.joblib`-артефакты игнорируются Git.
+`python -m bikeflow.ml cv` отдельно повторяет rolling-origin сравнение. Загрузчик
+проверяет SHA256 исходного CSV. Данные и `.joblib`-артефакты Git игнорирует.
 
-По умолчанию обучаются baseline и production-кандидат HGB. Дополнительный MLP-
-эксперимент запускается отдельно после установки `.[mlp]`:
+Seed и версии зависимостей фиксируются и пишутся в metadata. Это повышает
+воспроизводимость, но проект не обещает bit-for-bit совпадение двух независимых
+обучений на разных системах.
 
-```bash
-python -m pip install -e ".[mlp]"
-python -m bikeflow.ml train --include-mlp --no-figures
-```
+## API
 
-Выбор делается по MAE на validation, WAPE — дополнительная метрика. Test не
-участвует в выборе и вычисляется только после фиксации HGB.
-
-| Split | MAE | WAPE |
-| --- | ---: | ---: |
-| validation | 161.085 | 0.166250 |
-| test (final evaluation) | 277.908 | 0.326851 |
-
-## API локально
-
-Артефакт создаётся в `models/model.joblib`. Путь можно изменить переменной
-`BIKEFLOW_MODEL_PATH`.
+Путь по умолчанию — `models/model.joblib`; его можно изменить:
 
 ```bash
-BIKEFLOW_MODEL_PATH=models/model.joblib uvicorn bikeflow.api.main:app --host 127.0.0.1 --port 8000
+BIKEFLOW_MODEL_PATH=models/model.joblib uvicorn bikeflow.api.main:app \
+  --host 127.0.0.1 --port 8000
 ```
 
-PowerShell:
-
-```powershell
-$env:BIKEFLOW_MODEL_PATH = "models/model.joblib"
-uvicorn bikeflow.api.main:app --host 127.0.0.1 --port 8000
-```
-
-Пример настоящего запроса:
+Модель загружается лениво после успешной валидации первого запроса и затем
+переиспользуется; API не обучает модель при запросах.
 
 ```bash
-curl -X POST http://127.0.0.1:8000/predict -H "Content-Type: application/json" -d '{
-  "prediction_time": "2026-07-15T08:00:00+09:00",
-  "temperature_c": 24.5,
-  "humidity_pct": 61,
-  "wind_speed_m_s": 1.8,
-  "visibility_10m": 1800,
-  "dew_point_c": 16.4,
-  "solar_radiation_mj_m2": 1.2,
-  "rainfall_mm": 0,
-  "snowfall_cm": 0,
-  "holiday": false,
-  "functioning_day": true
-}'
+curl -X POST http://127.0.0.1:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prediction_time":"2026-07-15T08:00:00+09:00",
+    "temperature_c":24.5,
+    "humidity_pct":61,
+    "wind_speed_m_s":1.8,
+    "visibility_10m":1800,
+    "dew_point_c":16.4,
+    "solar_radiation_mj_m2":1.2,
+    "rainfall_mm":0,
+    "snowfall_cm":0,
+    "holiday":false,
+    "functioning_day":true
+  }'
 ```
 
-Ответ текущего проверенного артефакта:
+`prediction_time` обязан содержать timezone; время нормализуется в
+`Asia/Seoul`. Неверное тело и значения вне общего API/ML-контракта получают
+`422`. Swagger UI: <http://127.0.0.1:8000/docs>.
 
-```json
-{
-  "prediction_time": "2026-07-15T08:00:00+09:00",
-  "predicted_rentals": 2336.968455081055,
-  "model_version": "hgb-373339b7-c3867ac1-98fd0d01"
-}
-```
+## Docker и проверки
 
-`prediction_time` без timezone и значения вне общего диапазона возвращают `422`.
-Swagger UI доступен на <http://127.0.0.1:8000/docs>.
-
-## Docker
-
-Compose передаёт локально обученный артефакт в контейнер read-only:
+Serving-образ — `python:3.11-slim` с CPU-only PyTorch и без training/reporting
+зависимостей. Compose монтирует локальный артефакт read-only:
 
 ```bash
 docker compose up --build
 ```
-
-Serving-образ работает на Python 3.11 и не устанавливает PyTorch. Перед запуском
-нужно создать `models/model.joblib` командой обучения выше.
-
-Для контрольного обучения именно внутри Linux/Python 3.11 доступен отдельный stage:
-
-```bash
-docker build --target training --tag bikeflow:training-py311 .
-docker run --rm -e BIKEFLOW_GIT_SHA=$(git rev-parse HEAD) \
-  -v "$PWD/data:/app/data" -v "$PWD/models:/app/models" \
-  -v "$PWD/reports:/app/reports" bikeflow:training-py311
-```
-
-## Проверки
 
 ```bash
 ruff check .
@@ -133,14 +105,15 @@ docker build --tag bikeflow:local .
 ```
 
 CI выполняет `lint`, `tests`, `ml-tests`, `docker-build` и
-`docker-runtime-smoke`; последний обучает небольшой настоящий HGB, монтирует
-артефакт в контейнер и вызывает `/predict` по HTTP. Stub используется только в
-изолированном API-тесте через dependency override.
+`docker-runtime-smoke`. Smoke-тест обучает небольшую настоящую MLP embedding,
+монтирует bundle и вызывает `/predict` по HTTP. Stub используется только как
+injected test double.
 
-## Ограничения и следующие этапы
+## Ограничения
 
-Сейчас нет автоматического получения погоды, DVC, MLflow, Airflow, PostgreSQL,
-drift monitoring, автоматического переобучения, Kubernetes, Argo CD и UI. Данные
-охватывают один город и один год; test состоит только из осени, а пики спроса
-часто недооцениваются. Подробности и сценарий показа преподавателю находятся в
+Нет автоматического получения погоды, DVC, MLflow, оркестратора, drift
+monitoring, автоматического переобучения и UI. Данные охватывают один город и
+один год; test целиком осенний, пики и дождь остаются сложными режимами.
+Подробности: [`docs/model/model_card.md`](docs/model/model_card.md),
+[`docs/contracts/model_api.md`](docs/contracts/model_api.md) и
 [`docs/teacher_demo_ru.md`](docs/teacher_demo_ru.md).

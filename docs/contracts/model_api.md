@@ -28,14 +28,16 @@ offset/timezone и перед построением календарных пр
 ```json
 {
   "prediction_time": "2026-07-15T08:00:00+09:00",
-  "predicted_rentals": 2336.968455081055,
-  "model_version": "hgb-373339b7-c3867ac1-98fd0d01"
+  "predicted_rentals": 512.3,
+  "model_version": "mlp_embedding-373339b7-..."
 }
 ```
 
 FastAPI получает настоящий `BikeflowPredictor`, который лениво загружает путь из
 `BIKEFLOW_MODEL_PATH`. Ленивая загрузка позволяет вернуть `422` за неверное тело
-до обращения к диску. Stub разрешён только как injected test double.
+до обращения к диску. После первой загрузки тот же MLP predictor используется для
+всех запросов без переобучения. Stub разрешён только как injected test double.
 
-Обучение, получение погоды, drift detection и retraining не входят в inference-
-контракт.
+Production bundle содержит preprocessing и PyTorch MLP embedding. Погода сейчас
+передаётся пользователем. Обучение, внешний weather API, drift detection и
+retraining не входят в inference-контракт.

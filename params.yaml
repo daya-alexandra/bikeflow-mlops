@@ -16,6 +16,20 @@ split:
   validation: ["2018-08-01", "2018-09-30"]
   test: ["2018-10-01", "2018-11-30"]
 
+# How the champion is chosen. A single validation window rewards whichever model
+# happens to suit those two months: HGB wins Aug-Sep by a wide margin and loses
+# the two folds before it. Averaging over rolling-origin folds removes that
+# accident. Every fold trains on the past and scores on the future, and no fold
+# may touch the test period (enforced in code).
+selection:
+  strategy: rolling_cv        # rolling_cv | validation
+  metric: mae                 # primary metric; WAPE ranks identically within a window
+  inner_weeks: 6              # held out inside each fold for early stopping
+  folds:
+    - ["2018-04-01", "2018-05-31"]
+    - ["2018-06-01", "2018-07-31"]
+    - ["2018-08-01", "2018-09-30"]
+
 target: rented_bike_count
 
 features:

@@ -1,4 +1,4 @@
-"""Create a tiny real HGB artifact for Docker/CI runtime smoke tests."""
+"""Create a tiny real MLP embedding artifact for Docker/CI smoke tests."""
 
 from __future__ import annotations
 
@@ -9,9 +9,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from bikeflow.ml.config import load_config
 from bikeflow.ml.features import build_features, coerce_input
-from bikeflow.ml.models.hgb import HGBModel
 from bikeflow.ml.models.registry import save_bundle
+from bikeflow.ml.models.torch_mlp import TorchMLPRegressor
 
 
 def create(destination: Path) -> Path:
@@ -39,17 +40,17 @@ def create(destination: Path) -> Path:
     data_hash = hashlib.sha256(frame.to_csv(index=False).encode()).hexdigest()
     features = build_features(coerce_input(frame))
     target = 180 + 12 * features["hour"].to_numpy() + 2 * frame["temperature"].to_numpy()
-    params = {
-        "loss": "poisson",
-        "max_iter": 25,
-        "learning_rate": 0.1,
-        "max_leaf_nodes": 7,
-        "min_samples_leaf": 2,
-        "l2_regularization": 1.0,
-        "early_stopping": False,
-        "n_iter_no_change": 25,
-    }
-    model = HGBModel(params=params, seed=42).fit(features, target)
+    params = dict(load_config()["models"]["mlp"])
+    params.update(
+        hidden=[16, 8],
+        dropout=0.0,
+        learning_rate=0.01,
+        batch_size=32,
+        max_epochs=12,
+        patience=4,
+    )
+    model = TorchMLPRegressor(encoding="embedding", params=params, seed=42)
+    model.fit(features.iloc[:72], target[:72], features.iloc[72:], target[72:])
     return save_bundle(
         destination,
         model,

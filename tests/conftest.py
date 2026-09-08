@@ -6,12 +6,14 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from bikeflow.ml.config import load_config
 from bikeflow.ml.features import build_features, coerce_input
 from bikeflow.ml.models.hgb import HGBModel
 from bikeflow.ml.models.registry import save_bundle
+from bikeflow.ml.models.torch_mlp import TorchMLPRegressor
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def hgb_rows() -> pd.DataFrame:
     """Small canonical dataset with enough variation to fit a real HGB."""
 
@@ -58,5 +60,31 @@ def real_hgb_artifact(tmp_path, hgb_rows):
         model,
         metrics={"validation": {"mae": 1.0, "wape": 0.01}},
         data_sha256="a" * 64,
+        training_params=params,
+    )
+
+
+@pytest.fixture(scope="session")
+def real_mlp_artifact(tmp_path_factory, hgb_rows):
+    """A small production-shaped MLP bundle with preprocessing and weights."""
+    features = build_features(coerce_input(hgb_rows))
+    target = 180 + 12 * features["hour"].to_numpy() + 2 * hgb_rows["temperature"].to_numpy()
+    params = dict(load_config()["models"]["mlp"])
+    params.update(
+        hidden=[16, 8],
+        dropout=0.0,
+        learning_rate=0.01,
+        batch_size=32,
+        max_epochs=12,
+        patience=4,
+    )
+    model = TorchMLPRegressor(encoding="embedding", params=params, seed=42)
+    model.fit(features.iloc[:72], target[:72], features.iloc[72:], target[72:])
+    destination = tmp_path_factory.mktemp("mlp-artifact") / "model.joblib"
+    return save_bundle(
+        destination,
+        model,
+        metrics={"validation": {"mae": 1.0, "wape": 0.01}},
+        data_sha256="b" * 64,
         training_params=params,
     )

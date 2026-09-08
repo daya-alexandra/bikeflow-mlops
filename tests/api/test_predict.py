@@ -32,8 +32,8 @@ def test_stub_is_available_only_through_dependency_injection() -> None:
     assert response.json()["model_version"] == "stub-v0"
 
 
-def test_predict_uses_a_real_hgb_artifact(real_hgb_artifact) -> None:
-    app.dependency_overrides[get_predictor] = lambda: BikeflowPredictor(real_hgb_artifact)
+def test_predict_uses_a_real_mlp_artifact(real_mlp_artifact) -> None:
+    app.dependency_overrides[get_predictor] = lambda: BikeflowPredictor(real_mlp_artifact)
     try:
         response = TestClient(app).post("/predict", json=VALID_REQUEST)
     finally:
@@ -42,11 +42,11 @@ def test_predict_uses_a_real_hgb_artifact(real_hgb_artifact) -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["predicted_rentals"] > 0
-    assert payload["model_version"].startswith("hgb-")
+    assert payload["model_version"].startswith("mlp_embedding-")
 
 
-def test_prediction_time_is_normalized_to_seoul(real_hgb_artifact) -> None:
-    app.dependency_overrides[get_predictor] = lambda: BikeflowPredictor(real_hgb_artifact)
+def test_prediction_time_is_normalized_to_seoul(real_mlp_artifact) -> None:
+    app.dependency_overrides[get_predictor] = lambda: BikeflowPredictor(real_mlp_artifact)
     try:
         response = TestClient(app).post(
             "/predict",
