@@ -13,7 +13,7 @@ from bikeflow.ml.models.registry import save_bundle  # noqa: E402
 from bikeflow.model.adapter import BikeflowPredictor, to_canonical_row  # noqa: E402
 
 REQUEST = {
-    "prediction_time": "2018-12-01T18:00:00",
+    "prediction_time": "2018-12-01T18:00:00+09:00",
     "temperature_c": 3.5,
     "humidity_pct": 45,
     "wind_speed_m_s": 1.2,
@@ -63,7 +63,7 @@ def test_request_field_names_map_onto_training_names():
     assert row["is_holiday"] is False
     assert row["is_functioning"] is True
     assert row["hour"] == 18
-    assert row["season"] == "winter"
+    assert row["season"] == "Winter"
     # 2018-12-01 was a Saturday.
     assert row["day_of_week"] == 5
 

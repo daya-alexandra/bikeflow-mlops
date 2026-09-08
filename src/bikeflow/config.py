@@ -1,8 +1,8 @@
 """Application configuration loaded from BIKEFLOW_* environment variables."""
 
 from functools import lru_cache
+from pathlib import Path
 
-from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="BIKEFLOW_", env_file=".env")
 
     log_level: str = "INFO"
-    stub_prediction: float = Field(default=42.0, ge=0)
+    model_path: Path = Path("models/model.joblib")
 
 
 @lru_cache
