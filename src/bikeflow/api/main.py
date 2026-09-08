@@ -4,11 +4,12 @@ import json
 import logging
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, status
+from fastapi import Depends, FastAPI, HTTPException, status
 
 from bikeflow.api.dependencies import get_predictor
 from bikeflow.api.schemas import HealthResponse, PredictionRequest, PredictionResponse
 from bikeflow.config import get_settings
+from bikeflow.ml.features import FeatureValidationError
 from bikeflow.model.protocol import Predictor
 
 
@@ -61,7 +62,12 @@ def predict(
 ) -> PredictionResponse:
     """Predict hourly rentals with the configured inference implementation."""
 
-    prediction = predictor.predict(request.to_features())
+    try:
+        prediction = predictor.predict(request.to_features())
+    except FeatureValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
     logger.info("prediction_completed model_version=%s", predictor.model_version)
     return PredictionResponse(
         prediction_time=request.prediction_time,

@@ -1,63 +1,43 @@
-# Model/API contract
+# Контракт model/API
 
-Status: **preliminary**. Participant A must review and approve this contract before a real model is
-connected. The current service uses `StubPredictor` (`stub-v0`) only.
+Статус: **provisional**, подготовлен для обсуждения участников A и B.
 
-## Prediction request
+`POST /predict` принимает один объект. `prediction_time` обязан содержать UTC
+offset/timezone и перед построением календарных признаков переводится в
+`Asia/Seoul`. Погодные признаки передаются непосредственно клиентом.
 
-`POST /predict` accepts one JSON object:
+| Поле API | Тип | Единица | Диапазон |
+| --- | --- | --- | --- |
+| `temperature_c` | number | °C | −40…50 |
+| `humidity_pct` | number | % | 0…100 |
+| `wind_speed_m_s` | number | m/s | 0…50 |
+| `visibility_10m` | number | 10 m | 0…2000 |
+| `dew_point_c` | number | °C | −40…40 |
+| `solar_radiation_mj_m2` | number | MJ/m² | 0…10 |
+| `rainfall_mm` | number | mm | 0…200 |
+| `snowfall_cm` | number | cm | 0…100 |
+| `holiday` | boolean | — | по умолчанию `false` |
+| `functioning_day` | boolean | — | по умолчанию `true` |
 
-| Field | Type | Constraint |
-| --- | --- | --- |
-| `prediction_time` | ISO 8601 datetime | Time of the requested prediction |
-| `temperature_c` | number | -100 to 80 |
-| `humidity_pct` | number | 0 to 100 |
-| `wind_speed_m_s` | number | Non-negative |
-| `visibility_10m` | integer | Non-negative, dataset units of 10 m |
-| `dew_point_c` | number | -100 to 80 |
-| `solar_radiation_mj_m2` | number | Non-negative |
-| `rainfall_mm` | number | Non-negative |
-| `snowfall_cm` | number | Non-negative |
-| `holiday` | boolean | Whether the date is a holiday |
-| `functioning_day` | boolean | Whether rentals operate that day |
+Фактический единственный источник этой таблицы — `FEATURE_CONTRACT` в
+`src/bikeflow/ml/features.py`. Pydantic-поля API и canonical mapping строятся из
+него. `hour`, `day_of_week` и `season` выводятся из нормализованного времени.
 
-`hour` and meteorological `season` are derived centrally from `prediction_time`; clients must not
-send them. Unknown request fields are rejected. Participant A must confirm names, units, category
-encoding, timezone handling, and all value constraints against the training pipeline.
-
-## Prediction response
+Неверные данные отклоняются с HTTP `422`. Неизвестные поля запрещены. Ответ:
 
 ```json
 {
   "prediction_time": "2026-07-15T08:00:00+09:00",
-  "predicted_rentals": 42.0,
-  "model_version": "stub-v0"
+  "predicted_rentals": 512.3,
+  "model_version": "mlp_embedding-373339b7-..."
 }
 ```
 
-`predicted_rentals` is numeric and non-negative. `model_version` identifies the exact inference
-artifact.
+FastAPI получает настоящий `BikeflowPredictor`, который лениво загружает путь из
+`BIKEFLOW_MODEL_PATH`. Ленивая загрузка позволяет вернуть `422` за неверное тело
+до обращения к диску. После первой загрузки тот же MLP predictor используется для
+всех запросов без переобучения. Stub разрешён только как injected test double.
 
-## Predictor interface
-
-The API depends on the `Predictor` protocol. It accepts exactly one feature mapping, returns one
-numeric demand prediction, and exposes an immutable model version. Training, drift detection, and
-retraining are intentionally outside this interface. Dependency injection allows the stub to be
-replaced later by an sklearn/MLflow adapter without changing endpoint code.
-
-## Artifact and validation requirements
-
-Preprocessing must be saved together with the estimator in the same model artifact so online and
-offline transformations cannot diverge. Data must use a chronological train/validation/test split,
-without random shuffling, to avoid future-to-past leakage.
-
-Participant A must deliver:
-
-- one reproducible training command;
-- the packaged preprocessing plus model artifact;
-- an immutable model version;
-- validation and test metrics, including the chosen primary metric;
-- one control request and its expected prediction.
-
-Drift detection and retraining will be separate components in later stages. They must not be hidden
-inside the inference adapter.
+Production bundle содержит preprocessing и PyTorch MLP embedding. Погода сейчас
+передаётся пользователем. Обучение, внешний weather API, drift detection и
+retraining не входят в inference-контракт.

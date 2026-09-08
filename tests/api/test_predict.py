@@ -1,8 +1,9 @@
 from fastapi.testclient import TestClient
 
+from bikeflow.api.dependencies import get_predictor
 from bikeflow.api.main import app
-
-client = TestClient(app)
+from bikeflow.model.adapter import BikeflowPredictor
+from bikeflow.model.stub import StubPredictor
 
 VALID_REQUEST = {
     "prediction_time": "2026-07-15T08:00:00+09:00",
@@ -19,20 +20,53 @@ VALID_REQUEST = {
 }
 
 
-def test_predict_returns_stub_prediction() -> None:
-    response = client.post("/predict", json=VALID_REQUEST)
+def test_stub_is_available_only_through_dependency_injection() -> None:
+    app.dependency_overrides[get_predictor] = lambda: StubPredictor(42.0)
+    try:
+        response = TestClient(app).post("/predict", json=VALID_REQUEST)
+    finally:
+        app.dependency_overrides.clear()
 
     assert response.status_code == 200
-    assert response.json() == {
-        "prediction_time": VALID_REQUEST["prediction_time"],
-        "predicted_rentals": 42.0,
-        "model_version": "stub-v0",
-    }
+    assert response.json()["predicted_rentals"] == 42.0
+    assert response.json()["model_version"] == "stub-v0"
 
 
-def test_predict_rejects_invalid_humidity() -> None:
-    invalid_request = VALID_REQUEST | {"humidity_pct": 101}
+def test_predict_uses_a_real_mlp_artifact(real_mlp_artifact) -> None:
+    app.dependency_overrides[get_predictor] = lambda: BikeflowPredictor(real_mlp_artifact)
+    try:
+        response = TestClient(app).post("/predict", json=VALID_REQUEST)
+    finally:
+        app.dependency_overrides.clear()
 
-    response = client.post("/predict", json=invalid_request)
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["predicted_rentals"] > 0
+    assert payload["model_version"].startswith("mlp_embedding-")
 
+
+def test_prediction_time_is_normalized_to_seoul(real_mlp_artifact) -> None:
+    app.dependency_overrides[get_predictor] = lambda: BikeflowPredictor(real_mlp_artifact)
+    try:
+        response = TestClient(app).post(
+            "/predict",
+            json={**VALID_REQUEST, "prediction_time": "2026-07-14T23:00:00Z"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["prediction_time"] == "2026-07-15T08:00:00+09:00"
+
+
+def test_predict_rejects_naive_time() -> None:
+    response = TestClient(app).post(
+        "/predict", json={**VALID_REQUEST, "prediction_time": "2026-07-15T08:00:00"}
+    )
     assert response.status_code == 422
+
+
+def test_predict_rejects_values_outside_the_shared_contract() -> None:
+    for field, value in (("humidity_pct", 101), ("temperature_c", -41), ("visibility_10m", 2001)):
+        response = TestClient(app).post("/predict", json={**VALID_REQUEST, field: value})
+        assert response.status_code == 422, field
