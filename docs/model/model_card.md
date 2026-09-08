@@ -1,109 +1,57 @@
-# Model card — BikeFlow demand forecaster
+# Model card — BikeFlow HGB
 
-## What it does
+## Назначение
 
-Predicts the number of bicycle rentals in Seoul for one hour, given the calendar position of that
-hour and the weather expected during it. One request describes one hour and is self-contained: no
-history of past rentals is needed, which is what lets the API stay stateless.
+Модель прогнозирует количество аренд велосипедов в Сеуле за один час при заданных
+календарных и погодных условиях. Она не получает погоду сама и не предназначена
+для прогноза по отдельным станциям или другим городам.
 
-Regression on counts. Serving artifact: `models/model.joblib`.
+Production-артефакт: `models/model.joblib`. Он содержит один сериализованный
+`InferencePipeline`: общую валидацию, построение признаков и обученный
+`HistGradientBoostingRegressor`.
 
-## Architecture
+## Признаки
 
-A PyTorch MLP with entity embeddings for the categorical inputs.
+- Категориальные: `hour`, `day_of_week`, `season`.
+- Числовые: `temperature`, `humidity`, `wind_speed`, `visibility`, `dew_point`,
+  `solar_radiation`, `rainfall`, `snowfall`, `is_holiday`.
+- `is_functioning=false` — бизнес-правило: pipeline возвращает ровно ноль.
 
-```
-hour   -> Embedding(24, 4)
-weekday-> Embedding(7,  3)   ->  concat 9
-season -> Embedding(4,  2)
-9 numeric features, standardised (mean/std fitted on train only)
-                    -> concat 18
-   Linear(18, 128) + ReLU + Dropout(0.1)
-   Linear(128, 64) + ReLU
-   Linear(64, 1)   + Softplus          (guarantees a non-negative count)
-```
+Имена, типы, единицы и диапазоны определены один раз в
+`bikeflow.ml.features.FEATURE_CONTRACT` и используются API и ML-кодом.
 
-10 878 parameters. Loss `PoissonNLL`, Adam (lr 3e-3, weight decay 1e-4), batch 256, early stopping
-on validation MAE with patience 25. CPU only; training takes under a minute.
+## Обучение и выбор
 
-Embeddings are used rather than one-hot so the network can learn that neighbouring hours behave
-alike instead of treating all 24 as unrelated. Both encodings were trained and the choice was made
-on validation (see `reports/model_selection.md`).
+Данные разбиваются по времени: train до 31 июля 2018, validation — август и
+сентябрь, test — октябрь и ноябрь. Будущее не перемешивается с прошлым.
 
-## Features
+Provisional-решение команды: HGB — serving-модель, MAE на validation — основная
+метрика выбора, WAPE — дополнительная. Test не используется для выбора или
+early stopping; он оценивается только после выбора и только для HGB. MLP остаётся
+необязательным экспериментом.
 
-```
-categorical: hour, day_of_week, season
-numeric:     temperature, humidity, wind_speed, visibility, dew_point,
-             solar_radiation, rainfall, snowfall, is_holiday
-```
+| Split | MAE | WAPE | R² |
+| --- | ---: | ---: | ---: |
+| validation | 161.085 | 0.166250 | 0.8591 |
+| test | 277.908 | 0.326851 | 0.5915 |
 
-`month` is deliberately excluded. Under a chronological split the training window covers only
-months 12 and 1–7, so months 8–11 would reach the model as levels that never received a gradient.
-Removing it improved validation MAE from 219.1 to 168.7.
+Метрики получены на 1368 рабочих validation-часах и 1313 рабочих test-часах с
+зафиксированными зависимостями и seed 42.
 
-No lagged target features. Adding them would force the API to fetch rental history before every
-prediction and would complicate the delayed-target feedback loop planned for stage 5.
+## Воспроизводимость и metadata
 
-## Metrics
+Загрузка проверяет ожидаемый SHA256 исходного CSV. Артефакт записывает
+`model_version`, время обучения, Git SHA, seed, параметры HGB, SHA256 данных,
+SHA256 конфигурации и версии Python/numpy/pandas/scikit-learn. Точные версии и
+фиксированный seed уменьшают расхождения, но проект не обещает bit-for-bit
+идентичность между разными ОС и аппаратными платформами.
 
-Primary metric: **WAPE** (`Σ|y−ŷ| / Σy`). MAE is reported alongside it and is what early stopping
-and model selection optimise. MAPE is not used: hours with very low demand make it explode.
+## Ограничения
 
-Business metric **WCE**: `mean(3·max(0, y−ŷ) + 1·max(0, ŷ−y))` — underforecasting leaves riders
-without bikes and is weighted three times heavier than overforecasting.
-
-| Model | val MAE | val WAPE | test MAE | test WAPE | test WCE |
-| --- | --- | --- | --- | --- | --- |
-| seasonal_median (baseline) | 548.8 | 0.566 | 422.9 | 0.497 | 1212.6 |
-| hgb (reference) | 158.1 | 0.163 | 279.4 | 0.329 | 817.4 |
-| mlp_onehot | 217.1 | 0.224 | 201.6 | 0.237 | 537.6 |
-| **mlp_embedding (serving)** | 168.7 | 0.174 | **180.3** | **0.212** | **332.9** |
-
-Test R² = 0.805. The serving model improves test MAE by 57 % over the seasonal baseline.
-
-MAE is not comparable across splits: mean demand is 645 in train, 969 in validation and 850 in
-test. Compare WAPE instead.
-
-Gradient boosting wins on validation but loses on test — it overfits harder (train MAE 43 against
-88) and transfers worse across the seasonal shift.
-
-## Known limitations
-
-- **Peaks are underforecast.** Worst hours are 08:00 (MAE 462, mean error −349) and 18:00
-  (MAE 322, −254). Autumn peaks exceed summer ones and autumn is absent from training. This is the
-  most expensive error under the business metric.
-- **Rain.** On the 99 rainy test hours WAPE is 0.73 against 0.20 in dry weather and R² drops to
-  0.25; demand is systematically overforecast.
-- **Autumn is out of distribution.** The dataset is exactly one year, so autumn falls entirely in
-  the test window. Unseen category levels are zeroed after training rather than left at random
-  initialisation, so behaviour is deterministic, but autumn predictions rest on weather rather than
-  on the season label.
-- **No trend term.** At equal temperature, autumn demand is markedly higher than spring demand —
-  the service grew over the year. The model cannot see that trend and therefore underforecasts
-  late-period demand.
-- **One city, no stations.** The dataset is a single aggregate counter for Seoul. The model cannot
-  say anything about individual docks.
-- **Weekends predict better than weekdays** (MAE 143 against 194).
-
-## Intended use and misuse
-
-Intended for operational planning of redistribution at city scale, on the horizon of the next hour.
-
-Not suitable for per-station planning, for horizons beyond a few hours, for cities other than
-Seoul, or for any decision about people. The dataset contains no personal data.
-
-## Reproducibility
-
-```bash
-make install-ml
-make data
-make train
-```
-
-A clean rerun with `data/` and `models/` deleted reproduces every metric bit for bit: seeds are
-fixed for Python, NumPy and torch, the DataLoader uses a seeded generator, and deterministic
-algorithms are enabled.
-
-Artifact metadata records `model_version`, the dataset sha256, the training window, the seed and
-the versions of Python, torch and scikit-learn.
+- Набор содержит только один год и один агрегированный счётчик для Сеула.
+- Test полностью состоит из осени; это заметный временной/сезонный сдвиг.
+- Модель недооценивает часть пиков спроса и хуже работает в редких погодных
+  режимах, особенно при дожде.
+- Нет лагов спроса, внешнего weather API, мониторинга качества или автоматического
+  переобучения.
+- Результат — учебный прогноз, не гарантия доступности велосипедов.
