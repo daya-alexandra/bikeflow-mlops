@@ -21,6 +21,20 @@ dev = [
     "pytest>=8.3,<9.0",
     "ruff>=0.8,<1.0",
 ]
+# Training and offline evaluation only. Kept out of the runtime dependencies so
+# the API image does not carry torch; the serving adapter imports them lazily.
+ml = [
+    "joblib>=1.4,<2.0",
+    "matplotlib>=3.9,<4.0",
+    "numpy>=2.0,<3.0",
+    "pandas>=2.2,<4.0",
+    "pyarrow>=17.0",
+    "PyYAML>=6.0,<7.0",
+    "requests>=2.32,<3.0",
+    "scikit-learn>=1.5,<2.0",
+    "tabulate>=0.9,<1.0",
+    "torch>=2.6,<3.0",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
