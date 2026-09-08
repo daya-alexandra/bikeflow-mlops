@@ -16,11 +16,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 import pandas as pd
 
 from .config import load_config
-from .features import build_features, coerce_input
 from .models.registry import load_bundle
 
 
@@ -29,7 +27,8 @@ class Predictor:
 
     def __init__(self, bundle: dict[str, Any], source: Path | None = None) -> None:
         self.bundle = bundle
-        self.model = bundle["model"]
+        self.pipeline = bundle["pipeline"]
+        self.model = self.pipeline.model
         self.kind = bundle["kind"]
         self.metadata = bundle["metadata"]
         self.source = source
@@ -45,16 +44,12 @@ class Predictor:
         Returns a float ndarray by default, or the input frame with a
         `predicted_demand` column when `return_frame` is set.
         """
-        frame = coerce_input(records)
-        features = build_features(frame)
-        predictions = np.asarray(self.model.predict(features), dtype="float64")
-
-        # Closed hours are a business rule, not something the model should guess.
-        predictions = np.where(frame["is_functioning"].to_numpy(), predictions, 0.0)
-        predictions = np.clip(predictions, 0.0, None)
+        predictions = self.pipeline.predict(records)
 
         if return_frame:
-            out = frame.copy()
+            from .features import coerce_input
+
+            out = coerce_input(records)
             out["predicted_demand"] = predictions
             return out
         return predictions

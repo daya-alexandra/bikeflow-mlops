@@ -9,8 +9,13 @@ change to the contract with role B.
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
+import importlib.metadata
+import json
+import os
 import platform
 import shutil
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -25,19 +30,44 @@ from ..features import (
     feature_columns,
     numeric_columns,
 )
+from ..pipeline import InferencePipeline
 
-BUNDLE_KEYS = ("kind", "model", "feature_spec", "target", "metadata", "metrics")
+BUNDLE_KEYS = ("kind", "pipeline", "feature_spec", "target", "metadata", "metrics")
 
 
 def _versions() -> dict[str, str]:
-    import sklearn
-    import torch
+    versions = {"python": platform.python_version()}
+    for distribution in ("numpy", "pandas", "scikit-learn", "torch"):
+        try:
+            versions[distribution] = importlib.metadata.version(distribution)
+        except importlib.metadata.PackageNotFoundError:
+            continue
+    return versions
 
-    return {
-        "python": platform.python_version(),
-        "torch": torch.__version__,
-        "sklearn": sklearn.__version__,
-    }
+
+def config_sha256() -> str:
+    """Hash the effective training configuration in a stable representation."""
+
+    payload = json.dumps(load_config(), sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def git_commit() -> str:
+    """Return the source revision, allowing an explicit container override."""
+
+    override = os.environ.get("BIKEFLOW_GIT_SHA")
+    if override:
+        return override
+    try:
+        return subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=resolve("."),
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return "unknown"
 
 
 def feature_spec(model: Any) -> dict[str, Any]:
@@ -65,6 +95,7 @@ def save_bundle(
     metrics: dict[str, Any],
     data_sha256: str | None = None,
     train_period: tuple[str, str] | None = None,
+    training_params: dict[str, Any] | None = None,
     extra: dict[str, Any] | None = None,
 ) -> Path:
     """Write a model artifact. Returns the path written."""
@@ -73,24 +104,24 @@ def save_bundle(
 
     kind = getattr(model, "kind", type(model).__name__)
     trained_at = dt.datetime.now().astimezone()
-    # Immutable identifier the API reports with every prediction: what was
-    # trained, on which dataset, and when.
-    model_version = (
-        f"{kind}-{(data_sha256 or 'nodata')[:8]}-{trained_at.astimezone(dt.UTC):%Y%m%dT%H%M%SZ}"
-    )
+    config_hash = config_sha256()
+    revision = git_commit()
+    model_version = f"{kind}-{(data_sha256 or 'nodata')[:8]}-{config_hash[:8]}-{revision[:8]}"
 
     bundle = {
         "kind": kind,
-        "model": model,
+        "pipeline": InferencePipeline(model),
         "feature_spec": feature_spec(model),
         "target": TARGET,
         "metadata": {
             "model_version": model_version,
             "trained_at": trained_at.isoformat(timespec="seconds"),
             "data_sha256": data_sha256,
+            "config_sha256": config_hash,
             "train_period": list(train_period) if train_period else None,
             "seed": load_config()["seed"],
-            "git_commit": None,
+            "git_commit": revision,
+            "training_params": training_params or {},
             **_versions(),
             **(extra or {}),
         },

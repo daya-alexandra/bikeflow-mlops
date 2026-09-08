@@ -22,7 +22,7 @@ TARGET = "rented_bike_count"
 
 #: Columns a caller must supply for a single observation, with allowed ranges.
 #: Ranges are physical sanity bounds, deliberately wider than the training data.
-RAW_INPUT_SCHEMA: dict[str, dict[str, Any]] = {
+FEATURE_CONTRACT: dict[str, dict[str, Any]] = {
     # ISO 8601 only (YYYY-MM-DD). The raw UCI file uses DD/MM/YYYY, but that is
     # parsed with an explicit format in preprocess; accepting both here would
     # make 01/12 silently ambiguous for callers of the API.
@@ -30,21 +30,111 @@ RAW_INPUT_SCHEMA: dict[str, dict[str, Any]] = {
     # Either `date` or `day_of_week` must be supplied. Training data carries the
     # full date; the API layer derives the weekday from `prediction_time` and
     # sends that instead, since the model uses no other calendar information.
-    "date": {"kind": "date", "required": False, "default": None},
-    "day_of_week": {"kind": "int", "required": False, "min": 0, "max": 6, "default": None},
-    "hour": {"kind": "int", "required": True, "min": 0, "max": 23},
-    "temperature": {"kind": "float", "required": True, "min": -40.0, "max": 50.0},
-    "humidity": {"kind": "float", "required": True, "min": 0.0, "max": 100.0},
-    "wind_speed": {"kind": "float", "required": True, "min": 0.0, "max": 50.0},
-    "visibility": {"kind": "float", "required": True, "min": 0.0, "max": 2000.0},
-    "dew_point": {"kind": "float", "required": True, "min": -40.0, "max": 40.0},
-    "solar_radiation": {"kind": "float", "required": True, "min": 0.0, "max": 10.0},
-    "rainfall": {"kind": "float", "required": True, "min": 0.0, "max": 200.0},
-    "snowfall": {"kind": "float", "required": True, "min": 0.0, "max": 100.0},
-    "season": {"kind": "category", "required": True, "choices": SEASONS},
-    "is_holiday": {"kind": "bool", "required": False, "default": False},
-    "is_functioning": {"kind": "bool", "required": False, "default": True},
+    "date": {"kind": "date", "required": False, "default": None, "derived": True},
+    "day_of_week": {
+        "kind": "int",
+        "required": False,
+        "min": 0,
+        "max": 6,
+        "default": None,
+        "derived": True,
+    },
+    "hour": {"kind": "int", "required": True, "min": 0, "max": 23, "derived": True},
+    "temperature": {
+        "api_name": "temperature_c",
+        "kind": "float",
+        "unit": "°C",
+        "required": True,
+        "min": -40.0,
+        "max": 50.0,
+    },
+    "humidity": {
+        "api_name": "humidity_pct",
+        "kind": "float",
+        "unit": "%",
+        "required": True,
+        "min": 0.0,
+        "max": 100.0,
+    },
+    "wind_speed": {
+        "api_name": "wind_speed_m_s",
+        "kind": "float",
+        "unit": "m/s",
+        "required": True,
+        "min": 0.0,
+        "max": 50.0,
+    },
+    "visibility": {
+        "api_name": "visibility_10m",
+        "kind": "float",
+        "unit": "10 m",
+        "required": True,
+        "min": 0.0,
+        "max": 2000.0,
+    },
+    "dew_point": {
+        "api_name": "dew_point_c",
+        "kind": "float",
+        "unit": "°C",
+        "required": True,
+        "min": -40.0,
+        "max": 40.0,
+    },
+    "solar_radiation": {
+        "api_name": "solar_radiation_mj_m2",
+        "kind": "float",
+        "unit": "MJ/m²",
+        "required": True,
+        "min": 0.0,
+        "max": 10.0,
+    },
+    "rainfall": {
+        "api_name": "rainfall_mm",
+        "kind": "float",
+        "unit": "mm",
+        "required": True,
+        "min": 0.0,
+        "max": 200.0,
+    },
+    "snowfall": {
+        "api_name": "snowfall_cm",
+        "kind": "float",
+        "unit": "cm",
+        "required": True,
+        "min": 0.0,
+        "max": 100.0,
+    },
+    "season": {"kind": "category", "required": True, "choices": SEASONS, "derived": True},
+    "is_holiday": {
+        "api_name": "holiday",
+        "kind": "bool",
+        "unit": "boolean",
+        "required": False,
+        "default": False,
+    },
+    "is_functioning": {
+        "api_name": "functioning_day",
+        "kind": "bool",
+        "unit": "boolean",
+        "required": False,
+        "default": True,
+    },
 }
+
+# Backwards-compatible public name used by preprocessing and validation. The API
+# also reads this exact object, so bounds and types cannot drift independently.
+RAW_INPUT_SCHEMA = FEATURE_CONTRACT
+
+
+def api_input_contract() -> dict[str, dict[str, Any]]:
+    """Return API field definitions keyed by their public request names."""
+
+    return {
+        spec["api_name"]: {"canonical_name": canonical_name, **spec}
+        for canonical_name, spec in FEATURE_CONTRACT.items()
+        if "api_name" in spec
+    }
+
 
 #: Categories of every categorical feature, in the order the encoders use.
 CATEGORY_LEVELS: dict[str, list[Any]] = {
@@ -78,7 +168,7 @@ def _as_frame(records: Any) -> pd.DataFrame:
         return records.copy()
     if isinstance(records, Mapping):
         return pd.DataFrame([dict(records)])
-    if isinstance(records, (str, Path)):
+    if isinstance(records, str | Path):
         path = Path(records)
         if path.suffix.lower() == ".parquet":
             return pd.read_parquet(path)
@@ -99,9 +189,9 @@ def _coerce_bool(series: pd.Series, column: str) -> pd.Series:
     falsy = {"no", "false", "0", "no holiday", "n"}
 
     def convert(value: Any) -> bool:
-        if isinstance(value, (bool, np.bool_)):
+        if isinstance(value, bool | np.bool_):
             return bool(value)
-        if isinstance(value, (int, float, np.integer, np.floating)) and not pd.isna(value):
+        if isinstance(value, int | float | np.integer | np.floating) and not pd.isna(value):
             return bool(value)
         text = str(value).strip().lower()
         if text in truthy:

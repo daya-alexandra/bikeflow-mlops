@@ -40,6 +40,13 @@ def download_raw(force: bool = False, timeout: int = 120) -> Path:
     csv_path = raw_dir / cfg["csv_name"]
 
     if csv_path.exists() and not force:
+        actual = sha256_of(csv_path)
+        expected = cfg["expected_sha256"]
+        if actual != expected:
+            raise RuntimeError(
+                f"Raw dataset SHA256 mismatch: expected {expected}, got {actual}. "
+                "Remove the file or re-run download with --force."
+            )
         print(f"[download] already present: {csv_path}")
         return csv_path
 
@@ -53,13 +60,18 @@ def download_raw(force: bool = False, timeout: int = 120) -> Path:
             raise RuntimeError(f"{cfg['csv_name']} not found in archive; members are {names}")
         payload = archive.read(cfg["csv_name"])
 
+    actual = hashlib.sha256(payload).hexdigest()
+    expected = cfg["expected_sha256"]
+    if actual != expected:
+        raise RuntimeError(f"Downloaded dataset SHA256 mismatch: expected {expected}, got {actual}")
+
     csv_path.write_bytes(payload)
 
     n_lines = payload.count(b"\n")
     meta = {
         "url": cfg["url"],
         "file": cfg["csv_name"],
-        "sha256": sha256_of(csv_path),
+        "sha256": actual,
         "bytes": len(payload),
         "approx_rows": n_lines - 1,
         "downloaded_at": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
@@ -74,7 +86,11 @@ def download_raw(force: bool = False, timeout: int = 120) -> Path:
 
 def data_sha256() -> str | None:
     """Hash of the raw dataset, recorded in every model artifact."""
-    path = meta_path()
-    if not path.exists():
+    csv_path = raw_csv_path()
+    if not csv_path.exists():
         return None
-    return json.loads(path.read_text(encoding="utf-8")).get("sha256")
+    actual = sha256_of(csv_path)
+    expected = load_config()["data"]["expected_sha256"]
+    if actual != expected:
+        raise RuntimeError(f"Raw dataset SHA256 mismatch: expected {expected}, got {actual}")
+    return actual

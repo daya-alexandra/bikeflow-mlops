@@ -33,7 +33,11 @@ def _cmd_split(_: argparse.Namespace) -> int:
 def _cmd_train(args: argparse.Namespace) -> int:
     from .training.train import run_training
 
-    run_training(save=not args.dry_run, figures=not args.no_figures)
+    run_training(
+        save=not args.dry_run,
+        figures=not args.no_figures,
+        include_mlp=args.include_mlp,
+    )
     return 0
 
 
@@ -41,7 +45,7 @@ def _cmd_evaluate(args: argparse.Namespace) -> int:
     import pandas as pd
 
     from .data.split import load_splits
-    from .features import TARGET, build_features
+    from .features import TARGET
     from .metrics import evaluate, evaluate_by_slice, rain_flag
     from .models.registry import load_bundle
 
@@ -51,7 +55,7 @@ def _cmd_evaluate(args: argparse.Namespace) -> int:
     frame["is_rain"] = rain_flag(frame)
 
     actual = frame[TARGET].to_numpy(dtype="float64")
-    predicted = bundle["model"].predict(build_features(frame))
+    predicted = bundle["pipeline"].predict(frame)
 
     print(f"model: {bundle['kind']}  trained_at: {bundle['metadata']['trained_at']}")
     print(f"split: {args.split}  rows: {len(frame)}\n")
@@ -110,6 +114,11 @@ def build_parser() -> argparse.ArgumentParser:
     train = subparsers.add_parser("train", help="train all models and write reports")
     train.add_argument("--dry-run", action="store_true", help="do not write artifacts")
     train.add_argument("--no-figures", action="store_true", help="skip plots")
+    train.add_argument(
+        "--include-mlp",
+        action="store_true",
+        help="also run the optional PyTorch MLP experiment",
+    )
     train.set_defaults(func=_cmd_train)
 
     evaluate = subparsers.add_parser("evaluate", help="score a saved model on a split")
