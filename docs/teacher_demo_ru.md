@@ -9,7 +9,7 @@ BikeFlow прогнозирует суммарный спрос на велос�
 1. В PR №7 показать сохранённый коммит участника A с rolling-origin CV и
    отдельные интеграционные коммиты API/Docker/CI.
 2. В `reports/model_selection.md` показать выбор MLP embedding: средний CV MAE
-   около 388.1 против 416.4 у HGB. MAE — основная метрика, WAPE — дополнительная.
+   `388.982` против `416.625` у HGB. MAE — основная метрика, WAPE — дополнительная.
 3. Объяснить, что HGB выигрывает только Aug–Sep fold, поэтому остаётся
    сравнительной, а не production-моделью. Test не участвовал в выборе.
 4. В `InferencePipeline` показать preprocessing и MLP в одном `.joblib` bundle.

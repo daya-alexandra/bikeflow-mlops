@@ -45,7 +45,7 @@ def test_softplus_inverse_survives_large_means():
     """Regression: log(expm1(x)) overflows past ~709, and demand means get there."""
     import math
 
-    pytest.importorskip("torch", reason="optional MLP extra is not required for HGB serving")
+    pytest.importorskip("torch", reason="the production MLP test requires the mlp extra")
     from bikeflow.ml.models.torch_mlp import softplus_inverse
 
     # Small values keep the exact formula.

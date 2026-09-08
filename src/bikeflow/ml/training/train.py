@@ -179,7 +179,7 @@ def write_reports(
         "models": results,
     }
     (reports / "metrics.json").write_text(
-        json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
     cv_scores.to_csv(reports / "cv_folds.csv", index=False)
     cv_summary.to_csv(reports / "cv_summary.csv", index=False)
