@@ -37,6 +37,17 @@ def _cmd_train(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_cv(_: argparse.Namespace) -> int:
+    from .training.cv import run_cv, summarise_cv
+
+    scores = run_cv()
+    print()
+    print(scores.round(1).to_string(index=False))
+    print()
+    print(summarise_cv(scores).round(1).to_string(index=False))
+    return 0
+
+
 def _cmd_evaluate(args: argparse.Namespace) -> int:
     import pandas as pd
 
@@ -111,6 +122,11 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--dry-run", action="store_true", help="do not write artifacts")
     train.add_argument("--no-figures", action="store_true", help="skip plots")
     train.set_defaults(func=_cmd_train)
+
+    cross_val = subparsers.add_parser(
+        "cv", help="rolling-origin cross-validation used to pick the champion"
+    )
+    cross_val.set_defaults(func=_cmd_cv)
 
     evaluate = subparsers.add_parser("evaluate", help="score a saved model on a split")
     evaluate.add_argument("--model", default=None, help="path to a .joblib artifact")

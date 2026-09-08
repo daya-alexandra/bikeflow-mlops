@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-07T21:10:12+03:00",
+  "generated_at": "2026-09-08T13:33:48+03:00",
   "data_sha256": "373339b71a8935d69e9af0abf26a70744632119862eeb3919efb389a7b749c60",
   "seed": 42,
   "split": {
@@ -167,5 +167,53 @@
         "bias": 27.73637017092447
       }
     }
+  },
+  "selection": {
+    "strategy": "rolling_cv",
+    "metric": "mae",
+    "folds": [
+      [
+        "2018-04-01",
+        "2018-05-31"
+      ],
+      [
+        "2018-06-01",
+        "2018-07-31"
+      ],
+      [
+        "2018-08-01",
+        "2018-09-30"
+      ]
+    ],
+    "summary": [
+      {
+        "model": "mlp_embedding",
+        "metric": "mae",
+        "mean_score": 388.1467717868068,
+        "worst_score": 407.22924462011304,
+        "best_score": 377.99366054675824
+      },
+      {
+        "model": "hgb",
+        "metric": "mae",
+        "mean_score": 416.44178828479903,
+        "worst_score": 579.6288756465763,
+        "best_score": 200.2422573745742
+      },
+      {
+        "model": "mlp_onehot",
+        "metric": "mae",
+        "mean_score": 426.0675266787773,
+        "worst_score": 480.15782165527344,
+        "best_score": 358.79123804803754
+      },
+      {
+        "model": "seasonal_median",
+        "metric": "mae",
+        "mean_score": 733.7690352312507,
+        "worst_score": 867.318306010929,
+        "best_score": 644.0862573099415
+      }
+    ]
   }
 }

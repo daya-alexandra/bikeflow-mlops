@@ -27,8 +27,32 @@ season -> Embedding(4,  2)
 on validation MAE with patience 25. CPU only; training takes under a minute.
 
 Embeddings are used rather than one-hot so the network can learn that neighbouring hours behave
-alike instead of treating all 24 as unrelated. Both encodings were trained and the choice was made
-on validation (see `reports/model_selection.md`).
+alike instead of treating all 24 as unrelated.
+
+## How the champion is chosen
+
+Every trained model is a candidate — baseline, gradient boosting and both networks. The choice is
+made by **rolling-origin cross-validation** over the train and validation period; the test split is
+never read, and a fold that overlaps it raises an error.
+
+| Model | fold 1 (Apr–May) | fold 2 (Jun–Jul) | fold 3 (Aug–Sep) | mean MAE | worst fold |
+| --- | --- | --- | --- | --- | --- |
+| **mlp_embedding** | 407.2 | 378.0 | 379.2 | **388.1** | **407.2** |
+| hgb | 579.6 | 469.5 | 200.2 | 416.4 | 579.6 |
+| mlp_onehot | 480.2 | 358.8 | 439.3 | 426.1 | 480.2 |
+| seasonal_median | 689.9 | 867.3 | 644.1 | 733.8 | 867.3 |
+
+Fold MAE is higher than the headline numbers because each fold trains on a fraction of the data;
+only the comparison between rows matters.
+
+This is why a single window is not enough. Gradient boosting wins fold 3 outright, and fold 3 is
+exactly the August–September window used as the validation split — which is why HGB has the better
+validation MAE (158.1 against 168.7). On the two earlier folds it is the weakest of the three, and
+its spread across folds is 200–580 against 378–407 for the network. Averaging over folds picks the
+model that behaves consistently rather than the one that suits one season.
+
+Reproduce with `python -m bikeflow.ml cv`; results are written to `reports/cv_folds.csv` and
+`reports/cv_summary.csv`.
 
 ## Features
 
@@ -47,8 +71,14 @@ prediction and would complicate the delayed-target feedback loop planned for sta
 
 ## Metrics
 
-Primary metric: **WAPE** (`Σ|y−ŷ| / Σy`). MAE is reported alongside it and is what early stopping
-and model selection optimise. MAPE is not used: hours with very low demand make it explode.
+Primary metric: **MAE**, in rentals per hour, which is what early stopping and model selection
+optimise. **WAPE** (`Σ|y−ŷ| / Σy`) is reported alongside it.
+
+Within one window the two are the same ranking: `WAPE = MAE / mean(y)`, and the mean is a constant
+there, so no model can win on one and lose on the other. WAPE earns its place when windows are
+compared with each other — mean demand is 645 in train, 969 in validation and 850 in test, so raw
+MAE is not comparable across them, and rolling quality tracking in stage 6 needs the scale-free
+form. MAPE is not used: hours with very low demand make it explode.
 
 Business metric **WCE**: `mean(3·max(0, y−ŷ) + 1·max(0, ŷ−y))` — underforecasting leaves riders
 without bikes and is weighted three times heavier than overforecasting.
@@ -65,8 +95,9 @@ Test R² = 0.805. The serving model improves test MAE by 57 % over the seasonal 
 MAE is not comparable across splits: mean demand is 645 in train, 969 in validation and 850 in
 test. Compare WAPE instead.
 
-Gradient boosting wins on validation but loses on test — it overfits harder (train MAE 43 against
-88) and transfers worse across the seasonal shift.
+Gradient boosting wins the single validation window but is the least consistent model across the
+selection folds above, and it overfits harder (train MAE 43 against 88). The test column is
+reported for completeness only; it played no part in choosing the champion.
 
 ## Known limitations
 

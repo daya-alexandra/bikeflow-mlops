@@ -27,6 +27,7 @@ from ..models.baseline import SeasonalMedianBaseline
 from ..models.hgb import HGBModel
 from ..models.registry import promote, save_bundle
 from ..models.torch_mlp import TorchMLPRegressor
+from .cv import choose_by_cv, run_cv, summarise_cv
 
 MLP_KINDS = ("mlp_onehot", "mlp_embedding")
 
@@ -106,9 +107,30 @@ def slice_reports(
     }
 
 
-def choose_main(results: dict[str, dict[str, dict]]) -> str:
-    """Pick the MLP encoding that does best on validation MAE."""
-    return min(MLP_KINDS, key=lambda kind: results[kind]["validation"]["mae"])
+def choose_main(results: dict[str, dict[str, dict]], cv_scores: pd.DataFrame | None = None) -> str:
+    """Pick the champion among ALL trained models.
+
+    With `strategy: rolling_cv` the decision is the average over several
+    chronological folds. That matters here: on the August-September window
+    alone HGB looks best, yet it is the weakest of the three on the two folds
+    before it, so a single window would pick a model that does not generalise.
+
+    `strategy: validation` falls back to the single validation split. Under
+    either strategy the test split plays no part in the choice.
+    """
+    cfg = load_config()["selection"]
+    metric = cfg["metric"]
+
+    if cfg["strategy"] == "rolling_cv":
+        if cv_scores is None:
+            raise ValueError("selection.strategy is 'rolling_cv' but no CV scores were provided.")
+        return choose_by_cv(cv_scores)
+
+    if cfg["strategy"] != "validation":
+        raise ValueError(
+            f"Unknown selection strategy {cfg['strategy']!r}; use 'rolling_cv' or 'validation'."
+        )
+    return min(results, key=lambda kind: results[kind]["validation"][metric])
 
 
 def summary_table(results: dict[str, dict[str, dict]]) -> pd.DataFrame:
@@ -144,6 +166,7 @@ def write_reports(
     main_kind: str,
     models: dict[str, Any],
     data: dict[str, dict[str, Any]],
+    cv_scores: pd.DataFrame | None = None,
 ) -> None:
     reports = ensure_dir(load_config()["paths"]["reports_dir"])
     cfg = load_config()
@@ -161,6 +184,19 @@ def write_reports(
     (reports / "metrics.json").write_text(
         json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
     )
+
+    if cv_scores is not None:
+        cv_scores.to_csv(reports / "cv_folds.csv", index=False)
+        summarise_cv(cv_scores).to_csv(reports / "cv_summary.csv", index=False)
+        payload["selection"] = {
+            "strategy": cfg["selection"]["strategy"],
+            "metric": cfg["selection"]["metric"],
+            "folds": cfg["selection"]["folds"],
+            "summary": summarise_cv(cv_scores).to_dict("records"),
+        }
+        (reports / "metrics.json").write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
 
     slices["season"].to_csv(reports / "metrics_by_season.csv", index=False)
     slices["hour"].to_csv(reports / "metrics_by_hour.csv", index=False)
@@ -256,7 +292,13 @@ def run_training(save: bool = True, figures: bool = True) -> dict[str, Any]:
     print("\n[evaluate] scoring on train / validation / test")
     results = score(models, data)
     slices = slice_reports(models, data)
-    main_kind = choose_main(results)
+
+    cv_scores = None
+    if cfg["selection"]["strategy"] == "rolling_cv":
+        print("\n[cv] rolling-origin selection (the test split is never read)")
+        cv_scores = run_cv()
+        print("\n" + summarise_cv(cv_scores).round(1).to_string(index=False))
+    main_kind = choose_main(results, cv_scores)
 
     print("\n" + summary_table(results).to_string(index=False))
     print(f"\n[select] main model: {main_kind}")
@@ -285,7 +327,7 @@ def run_training(save: bool = True, figures: bool = True) -> dict[str, Any]:
         production = promote(models_dir / f"{main_kind}.joblib")
         print(f"[save] {len(models)} artifact(s) in {models_dir}; production -> {production}")
 
-        write_reports(results, slices, main_kind, models, data)
+        write_reports(results, slices, main_kind, models, data, cv_scores)
         if figures:
             make_figures(models, data, main_kind)
 

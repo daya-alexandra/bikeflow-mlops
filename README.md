@@ -91,7 +91,9 @@ bit for bit.
 | **mlp_embedding (serving)** | 0.174 | **180.3** | **0.212** |
 
 The serving model is a PyTorch MLP with entity embeddings; it improves test MAE by 57 % over the
-seasonal baseline (R² = 0.805). Architecture, metrics, slices and limitations are in
+seasonal baseline (R² = 0.805). The champion is picked among all four models by rolling-origin
+cross-validation over the train and validation period (`make cv`); the test split is never used to
+choose — a fold that overlaps it raises an error. Architecture, metrics, slices and limitations are in
 [`docs/model/model_card.md`](docs/model/model_card.md); the dataset and split are described in
 [`docs/model/data_card.md`](docs/model/data_card.md).
 

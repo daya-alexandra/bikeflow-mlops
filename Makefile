@@ -1,4 +1,4 @@
-.PHONY: install install-ml lint format test run docker-build data train evaluate
+.PHONY: install install-ml lint format test run docker-build data cv train evaluate
 
 install:
 	python -m pip install -e ".[dev]"
@@ -31,6 +31,9 @@ data:
 	python -m bikeflow.ml download
 	python -m bikeflow.ml preprocess
 	python -m bikeflow.ml split
+
+cv:
+	python -m bikeflow.ml cv
 
 train:
 	python -m bikeflow.ml train
